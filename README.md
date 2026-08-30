@@ -19,7 +19,7 @@ fallback lane; both lanes are documented with the same yardstick.
 | Decode | 34–36 tok/s | **48–54 tok/s** (+40%) |
 | Prefill | ~605 tok/s | **~4,494 tok/s** (7.4×) |
 | Real 250K-token request | — | accepted: 249,633 prompt tokens, 56 s prefill |
-| Concurrency | 1 sequence | 4 sequences (2-stream sweet spot: 96 tok/s aggregate; sustained 4-way: 63) |
+| Concurrency | 1 sequence | 4 sequences — warm aggregate: 96 (2 streams) / 134 (3) / 169 (4) tok/s |
 | Tool calling | — | OpenAI tools + `tool_choice` (parser: `qwen3_xml`, matches the model's XML template) |
 | Vision | via `mmproj-F16.gguf` sidecar | native, in-checkpoint ViT |
 | Cold boot | ~3 min | ~11 min |
@@ -75,6 +75,7 @@ Full derivation in [`docs/pp-debug/references/context-and-vision-math.md`](docs/
   **2.2× headroom**, no partition surgery required.
 - **Do not pass `--kv-cache-memory`** with asymmetric partitions: it caps every rank
   globally and strangles the fat rank below the target.
+- First multi-sequence generations after boot measure ~4x slow (CUDA-graph capture per batch shape happens on first use) — benchmark warm.
 - 256K boots transiently OOM-retry on the 24 GB rank during memory profiling
   (expandable-segments warnings) — benign, it recovers. Boot takes ~11 min.
 - If you OOM for real, the ladder is: `--max-num-batched-tokens 4096` →
