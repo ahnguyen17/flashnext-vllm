@@ -1,0 +1,11 @@
+PROD UP after ~11min (08:04:53)
+(APIServer pid=1) INFO 08-30 14:53:43 [model.py:1965] Using max model len 262144
+(Worker_PP0 pid=449) INFO 08-30 15:03:43 [gpu_worker.py:695] Available KV cache memory: 2.25 GiB
+=== QUALITY ===
+' Paris. Paris is a beautiful city. It is a popular tourist destination.'
+=== 250K-TOKEN REQUEST (patience: prefill is minutes) ===
+ACCEPTED: prompt_tokens=249633 (244K) in 56s
+prefill ~4494 tok/s | ANSWER: '\n\n<think>\nThe user is asking me to identify what kind'
+=== VISION RECHECK ===
+'The user provided an image and asked for a one'
+256K-VERIFIED
