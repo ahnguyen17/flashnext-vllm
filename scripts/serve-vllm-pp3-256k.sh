@@ -28,7 +28,7 @@ docker run --runtime nvidia -d --gpus '"device=1,2,3"' \
   --env VLLM_PP_LAYER_PARTITION=8,28,12 \
   qwen38-flash-next:pp3fix7 \
   serve /model --served-model-name flash-next qwen3.8-27b --max-model-len 262144 \
-  --pipeline-parallel-size 3 --gpu-memory-utilization 0.85 --max-num-seqs 2 \
+  --pipeline-parallel-size 3 --gpu-memory-utilization 0.85 --max-num-seqs 4 \
   --distributed-timeout-seconds 3600 \
   --cpu-distributed-timeout-seconds 3600 \
   --mamba-cache-mode align \
