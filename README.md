@@ -20,6 +20,7 @@ fallback lane; both lanes are documented with the same yardstick.
 | Prefill | ~605 tok/s | **~4,494 tok/s** (7.4×) |
 | Real 250K-token request | — | accepted: 249,633 prompt tokens, 56 s prefill |
 | Concurrency | 1 sequence | 2 sequences (measured ~105 tok/s aggregate) |
+| Tool calling | — | OpenAI tools + `tool_choice` (parser: `qwen3_xml`, matches the model's XML template) |
 | Vision | via `mmproj-F16.gguf` sidecar | native, in-checkpoint ViT |
 | Cold boot | ~3 min | ~11 min |
 | Crash recovery | manual | auto (`--restart unless-stopped`) |
