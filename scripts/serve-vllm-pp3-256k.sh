@@ -32,6 +32,6 @@ docker run --runtime nvidia -d --gpus '"device=1,2,3"' \
   --distributed-timeout-seconds 3600 \
   --cpu-distributed-timeout-seconds 3600 \
   --mamba-cache-mode align \
-  --enable-prefix-caching --trust-remote-code --generation-config auto \
+  --trust-remote-code --generation-config auto \
   --enable-auto-tool-choice --tool-call-parser qwen3_xml
 echo "vLLM prod 8012 (256K ctx) launched $(date +%H:%M:%S)"

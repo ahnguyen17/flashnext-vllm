@@ -80,6 +80,13 @@ Full derivation in [`docs/pp-debug/references/context-and-vision-math.md`](docs/
   (expandable-segments warnings) — benign, it recovers. Boot takes ~11 min.
 - If you OOM for real, the ladder is: `--max-num-batched-tokens 4096` →
   repartition `6,30,12` → drop to 192K.
+- **Prefix caching is disabled deliberately.** On this GDN architecture, long
+  multi-turn **vision** conversations (agent loop: screenshot each step, growing
+  history) reproducibly wedge the engine core at ~step 8-9 — `/v1/models` stays
+  200 while completions hang forever (3/3 reproduced; 12/12 steps pass with the
+  flag off). Log signature: Triton JIT of `_bilinear_pos_embed_kernel` mid-flight.
+  Matches vLLM issue #45238 (GDN prefix-cache). Cost of leaving it off: late-step
+  re-prefill (~+1-3 s/step at ~30K ctx). Re-enable only after the upstream fix.
 
 ## MTP speculative decoding: honest status
 
