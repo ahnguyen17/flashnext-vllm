@@ -17,6 +17,7 @@ docker run --runtime nvidia -d --gpus '"device=1,2,3"' \
   --restart unless-stopped \
   -v vllm-hf-cache:/root/.cache/huggingface \
   -v vllm-cache-v19:/root/.cache/vllm \
+  -v vllm-triton-cache:/root/.triton \
   -v ~/models/FlashNext-AWQ:/model:ro \
   --entrypoint vllm \
   --env PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
