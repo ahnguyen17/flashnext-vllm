@@ -7,19 +7,22 @@ mismatched GPUs**: an RTX 3090 (24 GB) and two unlocked NVIDIA CMP 170HX mining
 cards (64 GB + 40 GB).
 
 Measured end-to-end, not estimated: **262,144-token context, live vision,
-~4,500 tok/s prefill, 48–54 tok/s decode.** The same rig also runs a llama.cpp GGUF
+~4,500 tok/s prefill, 85 tok/s warm decode with MTP-3 speculative decoding**
+(57–59 no-MTP). The same rig also runs a llama.cpp GGUF
 fallback lane; both lanes are documented with the same yardstick.
 
-## Results (2026-08-30, same rig, same context window, same model)
+## Results (2026-09-02, same rig, same context window, same model)
 
 | | llama.cpp GGUF lane | **vLLM PP3 lane (prod)** |
 |---|---|---|
 | Weights | UD-Q4_K_XL, ~104 GB across 2× 170HX | AWQ-INT4, ~176 GB across 3090 + 2× 170HX |
-| Context | 262,144 | 262,144 |
-| Decode | 34–36 tok/s | **48–54 tok/s** (+40%) |
+| Context | 262,144 | 262,144 (native; 786K via YaRN 3.0 — see docs) |
+| Decode | 34–36 tok/s | **85 tok/s warm, 71 sustained @512 (MTP-3)**; 57–59 no-MTP |
+| MTP draft acceptance | — | 55.6% mean (1.9 of 3 draft tokens) |
 | Prefill | ~605 tok/s | **~4,494 tok/s** (7.4×) |
 | Real 250K-token request | — | accepted: 249,633 prompt tokens, 56 s prefill |
-| Concurrency | 1 sequence | 4 sequences — warm aggregate: 96 (2 streams) / 134 (3) / 169 (4) tok/s |
+| Retrieval at depth | — | needle HIT at 36K and 187K (MTP on); to 737K on the YaRN lane |
+| Concurrency | 1 sequence | 4 sequences — warm aggregate: 96 (2 streams) no-MTP / 89 with MTP |
 | Tool calling | — | OpenAI tools + `tool_choice` (parser: `qwen3_xml`, matches the model's XML template) |
 | Vision | via `mmproj-F16.gguf` sidecar | native, in-checkpoint ViT |
 | Cold boot | ~3 min | ~11 min |
@@ -31,10 +34,13 @@ Raw evidence of the passing 256K verification: [`results/verify-256k.log`](resul
 
 ```
 scripts/
-  serve-vllm-pp3-256k.sh    # the prod vLLM lane (docker run recipe, sanitized)
+  serve-vllm-pp3-262k-mtp.sh # the prod vLLM lane: 262K native + MTP-3 (sanitized)
+  serve-vllm-pp3-786k.sh    # the 786K YaRN 3.0 no-MTP lane (rollback / long-context day)
+  serve-vllm-pp3-256k.sh    # the original no-MTP recipe the above derive from
+  site26-pp-draft-table-sync.py  # the PP draft-table ring-sync patch (MTP at PP>1)
   serve-llamacpp-gguf.sh    # the llama.cpp GGUF fallback lane
   verify-256k.sh            # boot diag -> quality -> REAL 250K-token request -> vision
-  bench-mtp-pp3.sh          # speculative-decoding bench launcher (experimental)
+  bench-mtp-pp3.sh          # speculative-decoding bench launcher
 results/
   verify-256k.log           # passing run output
 docs/
@@ -51,15 +57,19 @@ AWQ checkpoint at a path you mount as `/model`.
 
 ```bash
 export VLLM_API_KEY=your-secret      # scripts default to 'change-me'
-bash scripts/serve-vllm-pp3-256k.sh   # ~11 min to come up
+bash scripts/serve-vllm-pp3-262k-mtp.sh  # ~9-11 min to come up
 bash scripts/verify-256k.sh           # full verification incl. a real 250K-token request
 ```
 
-**Image caveat:** the recipe uses image `qwen38-flash-next:pp3fix7` — a locally built
+**Image caveat:** the recipe uses image `qwen38-flash-next:pp3fix22` — a locally built
 vLLM fork image (CUDA 13 production base) carrying FlashNext/Qwen4Exp architecture
-support, PLE CPU offload, Triton GDN decode kernels, and our PP3 deadlock fixes.
+support, PLE CPU offload, Triton GDN decode kernels (baked in as image env), our PP3
+deadlock fixes (sites 8–10, 13, 17–18, 23), and the site-26 draft-table ring sync
+that makes MTP work under pipeline parallelism.
 It is not on a registry; the patches it contains are in
-[`docs/pp-debug/references/site15-17-18-patches.md`](docs/pp-debug/references/site15-17-18-patches.md)
+[`docs/pp-debug/references/site15-17-18-patches.md`](docs/pp-debug/references/site15-17-18-patches.md),
+[`docs/pp-debug/references/spec-corruption-hunt.md`](docs/pp-debug/references/spec-corruption-hunt.md),
+and [`scripts/site26-pp-draft-table-sync.py`](scripts/site26-pp-draft-table-sync.py)
 so you can recreate or port them.
 
 ## The 256K context math (why it fits on 24 GB + 104 GB)
@@ -73,6 +83,8 @@ Full derivation in [`docs/pp-debug/references/context-and-vision-math.md`](docs/
 - Default pools at `--gpu-memory-utilization 0.85` hold ~603K / 588K / 2M tokens;
   the binding rank (PP1, the 64 GB card) holds 588K tokens against a 262,144 need —
   **2.2× headroom**, no partition surgery required.
+- With MTP-3 on, the drafter (weights + draft KV, last rank) costs ~38K tokens of
+  pool (~9%): measured 488,863-token pool = **1.86× the window** at util 0.85.
 - **Do not pass `--kv-cache-memory`** with asymmetric partitions: it caps every rank
   globally and strangles the fat rank below the target.
 - First multi-sequence generations after boot measure ~4x slow (CUDA-graph capture per batch shape happens on first use) — benchmark warm.
@@ -88,14 +100,23 @@ Full derivation in [`docs/pp-debug/references/context-and-vision-math.md`](docs/
   Matches vLLM issue #45238 (GDN prefix-cache). Cost of leaving it off: late-step
   re-prefill (~+1-3 s/step at ~30K ctx). Re-enable only after the upstream fix.
 
-## MTP speculative decoding: honest status
+## MTP speculative decoding: fixed and in production (site-26)
 
-MTP k=3 **engages** on this fork (62–68 tok/s measured) but draft tokens never become
-real token IDs end-to-end — a design bug in the fork's spec-decode plumbing
-(`[-1]` placeholders flow all the way to verification). The served lane therefore
-runs **without** speculation: clean 48–54 tok/s beats corrupt 62–68. The entire
-37-build debugging campaign — deadlock forensics, phantom-slot ledger, rollback
-races, the final input-gather analysis — is in [`docs/pp-debug/`](docs/pp-debug/).
+MTP k=3 has been **on in production since 2026-09-02**: 85 tok/s warm single-stream
+(57–59 no-MTP), 55.6% draft acceptance, clean text, clean stop behavior.
+
+The last blocker after the 37-build campaign: under pipeline parallelism the
+speculator's `propose()` runs only on the last rank, so the other ranks verified
+against zeroed draft-token tables — corrupted text, 0% acceptance. **Site-26** adds a
+third broadcast to the site-17/18 input ring that distributes the draft-token table
+to every rank before verification:
+[`scripts/site26-pp-draft-table-sync.py`](scripts/site26-pp-draft-table-sync.py).
+No public recipe existed for MTP-at-PP; this is the missing piece.
+
+Validation numbers, gotchas (thinking-budget needle artifact, concurrency spec
+discount), rollback, and the untested 786K+MTP stretch:
+[`docs/deployment/262k-mtp-prod.md`](docs/deployment/262k-mtp-prod.md).
+The full debugging campaign history is in [`docs/pp-debug/`](docs/pp-debug/).
 
 ## Hardware notes
 
