@@ -79,10 +79,24 @@ The 786K no-MTP lane is one command:
 (YaRN 3.0, util 0.92, validated to 737K retrieval). Mechanics per the lane-swap
 playbook: `docker rm -f qwen38-prod-8012 && bash <launcher>`.
 
-## Untested stretch: 786K + MTP
+## 786K + MTP: tested and parked (2026-09-02)
 
-Plausible on PP2's measured headroom — site-26 turned MTP-at-PP from a research
-problem into a config experiment: add the YaRN override + `--speculative-config`
-to the 786K launcher and find the util that fits both KV (0.92 was the no-MTP fit)
-and the drafter. Not benched. The deep-decode math (~10 tok/s at 538K filled) says
-MTP is exactly the lever that lane wants.
+Tested over two boots (~20 min each) the night after the 262K promotion. It
+**boots** — pool 817K-826K tokens (1.04-1.05× the window) at util 0.92, drafter
+included — and passes every shallow check: 80-86 tok/s warm, 75.7 sustained @512,
+56-79% acceptance, DRAFTSYNC flowing, 401/tools/stop clean.
+
+It **fails at depth**: the first deep request (~300K-500K tokens) kills the engine.
+py-spy `--native` put PP1 at 100% SM frozen in `cuLaunchKernel → index_put_kernel`
+under `_forward_core` (`qwen_gdn_linear_attn.py:1520`) — the
+`ssm_state[prefill_state_indices]` write in the chunked delta-rule path's
+**spec-split branch** (`split_non_spec`), which only engages when the final prefill
+chunk carries draft slots. The trigger needs depth × MTP together: the no-MTP 786K
+lane needle'd 737K clean (pure prefill path); the 262K+MTP lane needle'd 187K clean.
+Observed boundary: clean ≤187K, fast-fail at ~300K (HTTP error, body uncaptured),
+20-minute livelock at ~498K (frozen-line dumps + flat compile caches = spin, not
+compile).
+
+**Verdict: parked pending a fork fix** to the GDN spec-split state write. The 262K
+native + MTP lane remains prod. A fix here is the second upstream-reportable
+PP+MTP finding (after site-26).

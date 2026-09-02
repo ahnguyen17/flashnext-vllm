@@ -114,7 +114,7 @@ to every rank before verification:
 No public recipe existed for MTP-at-PP; this is the missing piece.
 
 Validation numbers, gotchas (thinking-budget needle artifact, concurrency spec
-discount), rollback, and the untested 786K+MTP stretch:
+discount), rollback, and the tested-and-parked 786K+MTP verdict:
 [`docs/deployment/262k-mtp-prod.md`](docs/deployment/262k-mtp-prod.md).
 The full debugging campaign history is in [`docs/pp-debug/`](docs/pp-debug/).
 
