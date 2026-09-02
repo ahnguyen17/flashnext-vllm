@@ -55,3 +55,24 @@ larger request is eviction, not a cache failure.
   <container>` applies durability without a re-boot.
 
 Rollback: the 256K config is one command (`scripts/serve-vllm-pp3-256k.sh`).
+
+## Follow-up (2026-09-01): MTP un-parked — PP draft-table sync (site-26)
+
+The parked MTP blocker is fixed and validated at 32K bench config:
+single-stream **96.6 t/s vs 57-59 no-MTP (1.7x)**, copy-heavy 64.5, clean
+text (zero doubled patterns across a 512-token audit), exact-string
+preservation, 52% token acceptance (707/1356 over 452 draft steps).
+
+Root cause was PP-specific: the in-forward speculator (`propose()`) runs only
+on the last pipeline rank, but every rank's input gather reads its own
+`req_states.draft_tokens` - non-last ranks fed never-written zero rows at
+draft positions, so verification ran on garbage inputs. The scheduler-side
+`[-1]` markers were layout counts only, never the value source.
+
+Fix (`scripts/site26-pp-draft-table-sync.py`, image layer on top of the
+existing PP ring patches): a third broadcast on the same symmetric ring -
+last rank sends the full `[max_num_reqs, num_spec]` draft table immediately
+after `propose()`; non-last ranks receive it in-place at their existing ring
+receive. Full-table semantics match the `pp_size`-spaced decode cadence.
+No PP+MTP recipe appears to exist in the wild (official recipes validate
+MTP on TP only); this is upstream-reportable.
