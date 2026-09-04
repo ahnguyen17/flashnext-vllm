@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# PROD: vLLM Flash-Next AWQ-INT4, 262,144 NATIVE ctx + MTP-3 (pp3fix22 / site-26) — promoted 2026-09-02.
+# PROD: vLLM Flash-Next AWQ-INT4, 262,144 NATIVE ctx + MTP-3 — pp3fix25 (site-26 + site-30 boot warmup), promoted 2026-09-04.
+# site-30 = VLLM_PP_WARMUP=1 runs kernel warmup at PP>1 (env-gated site-9/10 bypass; unset = old skip behavior).
+# --no-enable-prefix-caching is MANDATORY: nightly images default it ON; cache-ON wedges this rig (see docs).
 # Base = the proven v20 no-MTP PP3 recipe + site-26 draft-table ring sync (MTP at PP>1).
 # Deltas vs the v20 no-MTP recipe:
 #   1. --speculative-config mtp k=3 (site-26 fixes draft-table propagation at PP>1)
@@ -27,13 +29,15 @@ docker run --runtime nvidia -d --gpus '"device=1,2,3"' \
   --env VLLM_API_KEY=change-me \
   --env VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=7200 \
   --env VLLM_PP_LAYER_PARTITION=8,28,12 \
-  qwen38-flash-next:pp3fix22 \
+  --env VLLM_PP_WARMUP=1 \
+  qwen38-flash-next:pp3fix25 \
   serve /model --served-model-name flash-next qwen3.8-27b --max-model-len 262144 \
   --speculative-config '{"method":"mtp","num_speculative_tokens":3}' \
   --pipeline-parallel-size 3 --gpu-memory-utilization 0.85 --max-num-seqs 4 \
   --distributed-timeout-seconds 3600 \
   --cpu-distributed-timeout-seconds 3600 \
   --mamba-cache-mode align \
+  --no-enable-prefix-caching \
   --trust-remote-code --generation-config auto \
   --enable-auto-tool-choice --tool-call-parser qwen3_xml
 echo "vLLM PP3 262K + MTP-3 (pp3fix22, util 0.85) launched"

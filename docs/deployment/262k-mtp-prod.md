@@ -100,3 +100,19 @@ compile).
 **Verdict: parked pending a fork fix** to the GDN spec-split state write. The 262K
 native + MTP lane remains prod. A fix here is the second upstream-reportable
 PP+MTP finding (after site-26).
+
+## 2026-09-04: pp3fix25 + boot warmup (site-30); the deep-shape wall
+
+Promoted prod to `pp3fix25` (= pp3fix22 + site-30: `VLLM_PP_WARMUP=1` env-gates the
+PP>1 warmup skips). Boot warmup converges at PP3 (615s first boot, ~530s warm,
+4 first-use JIT loads paid at boot); the shallow corridor serves with zero
+mid-inference JIT — this retires the first-request-after-boot crash class.
+
+**Known wall (not fixed by this):** first-use *deep-shape* triton module loads on
+the sm_86 rank livelock or crash under the patched driver (`triton _init_handles`
+→ libcuda spin, no Xid, or Xid 31). A 30K-token first request wedged the engine
+in `qsa_sparse_paged_attention`. Warmup cannot cover it (stock warmup exercises
+tiny shapes only; a shape ladder would just move the racy load to boot). Deep-
+context traffic is unreliable on mixed sm_86/sm_80 + unlock-patched-driver rigs
+until the driver race or the rank-0 topology is addressed. Cache-ON also remains
+off (third independent wedge class).
