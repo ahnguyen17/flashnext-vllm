@@ -34,7 +34,8 @@ Raw evidence of the passing 256K verification: [`results/verify-256k.log`](resul
 
 ```
 scripts/
-  serve-vllm-pp3-262k-mtp.sh # the prod vLLM lane: 262K native + MTP-3 (sanitized)
+  serve-vllm-pp3-262k-mtp-rank-reorder.sh # PROD since 2026-09-10: 262K + MTP-3, PP0 on the 64G sm_80 card
+  serve-vllm-pp3-262k-mtp.sh # the prior prod lane: 262K native + MTP-3 (sanitized)
   serve-vllm-pp3-786k.sh    # the 786K YaRN 3.0 no-MTP lane (rollback / long-context day)
   serve-vllm-pp3-256k.sh    # the original no-MTP recipe the above derive from
   site26-pp-draft-table-sync.py  # the PP draft-table ring-sync patch (MTP at PP>1)
@@ -117,6 +118,18 @@ Validation numbers, gotchas (thinking-budget needle artifact, concurrency spec
 discount), rollback, and the tested-and-parked 786K+MTP verdict:
 [`docs/deployment/262k-mtp-prod.md`](docs/deployment/262k-mtp-prod.md).
 The full debugging campaign history is in [`docs/pp-debug/`](docs/pp-debug/).
+
+## Rank reorder: PP0 off the sm_86 card (2026-09-10)
+
+Current prod moves pipeline rank 0 off the desktop-class (sm_86) card onto the
+64 GB sm_80 card via an in-container `CUDA_VISIBLE_DEVICES` remap + partition
+re-number — same per-card layers, zero capacity cost. **+15% decode @32K,
++34% 4-stream aggregate, and the fresh-process first-deep wedge lottery is gone**
+(32K + 131K needles passed first-try on a cold boot, which had never happened).
+Note `CUDA_DEVICE_ORDER=FASTEST_FIRST` does NOT work inside nvidia containers —
+the remap is the only mechanism; probe your enumeration first.
+
+[`docs/deployment/rank-reorder-pp3.md`](docs/deployment/rank-reorder-pp3.md)
 
 ## Hardware notes
 
