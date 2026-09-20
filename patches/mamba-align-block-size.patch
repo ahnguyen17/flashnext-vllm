@@ -1,0 +1,59 @@
+Ported from akumaburn/vllm-dflash2 commit 1c7542a4c5 (2026-09-18), original author
+a.eslampanah@live.com (akumaburn), Claude-coauthored. Applied to nightly base
+6f7df92a8e6 (pp3fix lineage) as site-32 / image tag pp3fix27-mambaalign on 2026-09-20.
+
+Problem: after KV cache groups are built, cache_config.block_size becomes the
+SMALLEST prefix-cacheable group's block size. Two Mamba "align" sites still read
+cache_config.block_size instead of cache_config.mamba_block_size:
+
+- MambaHybridModelState.add_request seeded a resumed request's running-state
+  column as (num_computed - 1) // block_size. On a large prefix hit that reads
+  the block table far past the row: CUDA illegal memory access
+  (WARP_OUT_OF_RANGE_ADDRESS) on the first prefix-cache hit — or, when it does
+  not crash, resumes from a wrong state column.
+- Scheduler._mamba_block_aligned_split aligned prefill chunks to the small
+  block size, so chunk ends miss Mamba block boundaries and break the invariant
+  that slot p holds the state after exactly (p + 1) * block_size tokens.
+
+Fix: read cache_config.mamba_block_size at both sites.
+
+Note on this base (6f7df92a8e): platforms/interface.py:922 sets
+cache_config.mamba_block_size = cache_config.block_size when
+mamba_cache_mode == "align", so the patched reads are always well-defined at
+runtime on our serving path. With prefix caching disabled the patch is inert
+(align mode is forced to 'none'); it becomes load-bearing exactly when prefix
+caching is enabled — which is why it ships together with the cache-ON serve
+variant (scripts/serve-8012-prefixcache.sh).
+
+Original upstream commit (tests included):
+https://github.com/akumaburn/vllm-dflash2/commit/1c7542a4c5
+On our base, patch applies at scheduler.py:392 and mamba_hybrid.py:116
+(offset -3 / +7, fuzz 1 relative to the original).
+
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -392,7 +392,10 @@
+         if start >= prefill_end:
+             return num_new_tokens
+
+-        block_size = self.cache_config.block_size
++        # Not cache_config.block_size: it becomes the smallest group block size
++        # (e.g. a DFlash sliding-window drafter's), below the Mamba block size.
++        block_size = self.cache_config.mamba_block_size
++        assert block_size is not None
+         # The last block-aligned position whose state can be cached. With
+         # Eagle, FullAttn prunes the last matching block, so back off one
+         # block to avoid a Mamba cache miss.
+--- a/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
++++ b/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
+@@ -113,8 +113,11 @@
+         self.num_accepted_tokens_gpu[req_index].fill_(1)
+         if self._align_mode:
+             # Seed the running state block from the resumed/prefilled position.
++            # cache_config.block_size can be smaller than the Mamba block size.
++            mamba_block_size = self.cache_config.mamba_block_size
++            assert mamba_block_size is not None
+             self._mamba_state_idx_gpu[req_index].fill_(
+-                (new_req_data.num_computed_tokens - 1) // self.cache_config.block_size
++                (new_req_data.num_computed_tokens - 1) // mamba_block_size
+             )
