@@ -22,6 +22,19 @@ solved by cache-ON + pmu400 + site-32: 10.07s → 1.98s at 40K depth.**
 No CUDA IMA on any first prefix hit — the regression the unpatched fork crashes on
 (akumaburn's fix works; full credit to akumaburn/vllm-dflash2 commit 1c7542a4c5).
 
+## Clean depth-decode ladder (2026-09-20 00:44, post fan-speed fix, zero throttle)
+
+Thermal at start/end: GPU2 57→75°C, sw_thermal_slowdown Not Active throughout.
+Nonce prompts (cache-cold by design — this ladder measures cold-prefill + decode):
+
+| Depth | TTFT | prefill | decode | 9/10 cache-OFF reference |
+|---|---|---|---|---|
+| 32K | 9.1s | 3,602 t/s | 78.7 t/s | 103–106 (first run post-boot; warmup artifact) |
+| 64K | 18.2s | 3,588 t/s | 96.7 t/s | 100 — within noise |
+| 131K | 39.3s | 3,392 t/s | 87.0 t/s | 87 — identical |
+
+**Verdict: no decode regression from prefix caching. Cache-ON stack fully promoted.**
+
 ## Thermal confound discovered during validation
 
 GPU2 (170HX-64G, PP0/28 layers) hit 86°C → SW thermal slowdown active (210 MHz vs
