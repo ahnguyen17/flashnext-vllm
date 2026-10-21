@@ -1,9 +1,6 @@
 
 # Flash-Next on 170HX Pair
 
-> **Current prod lane (since 2026-10-20) is GLM-5.3-Flash via Project Maya on the same port —
-> see [`maya-glm53-flash-170hx.md`](maya-glm53-flash-170hx.md). This lane is the rollback.**
-
 Qwen3.8-Flash-Next UD-Q4_K_XL (111G, 4 shards) evaluated 2026-08-28. **Verdict: keeper.**
 
 ## Locations
