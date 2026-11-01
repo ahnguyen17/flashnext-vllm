@@ -1,0 +1,15 @@
+FROM vllm/vllm-openai:nightly
+WORKDIR /opt/vllm
+ARG VLLM_SHA=a5530b90cab09b187463396a99612a486ba91d6f
+RUN apt-get update -qq && apt-get install -y -qq git ca-certificates patch && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir "setuptools-scm>=8" "setuptools-rust>=1.9" cmake ninja 2>&1 | tail -3
+RUN git init -q && git remote add origin https://github.com/vllm-project/vllm.git && \
+    git fetch --depth 1 origin ${VLLM_SHA} && git checkout -f FETCH_HEAD && git log --oneline -1
+COPY patch_pp.py full/ mamba-align-block-size.patch mamba_align_port.py /tmp/stack/
+RUN cd /opt/vllm && python3 /tmp/stack/patch_pp.py && \
+    for f in /tmp/stack/site*.py; do case "$f" in *validate*) continue;; esac; echo "APPLYING $f"; python3 "$f" || exit 1; done && \
+    (git apply /tmp/stack/mamba-align-block-size.patch || patch -p1 -F3 < /tmp/stack/mamba-align-block-size.patch || python3 /tmp/stack/mamba_align_port.py)
+RUN TORCH_CUDA_ARCH_LIST="8.0 8.6" pip install -e . --no-build-isolation --no-cache-dir 2>&1 | tail -15 && python3 -c "import vllm; print('vllm', vllm.__version__)"
+WORKDIR /workspace
+ENTRYPOINT ["vllm"]
+RUN pip install --no-cache-dir flashinfer-python==0.7.2.post1 2>&1 | tail -2
